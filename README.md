@@ -193,11 +193,9 @@ git init
 git add .
 git commit -m "Implement partner integration BFF"
 git branch -M main
-git remote add origin <YOUR_PUBLIC_REPOSITORY_URL>
+git remote add origin https://github.com/changtotbung1105/SSTECH
 git push -u origin main
 ```
-
-Kiểm tra không đưa secret vào commit và CI xanh trước khi gửi link. `index.html` là file có sẵn trong workspace, không thuộc implementation này.
 
 ## Tài liệu tham khảo
 
