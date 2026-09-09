@@ -1,0 +1,48 @@
+using Microsoft.AspNetCore.Authentication;
+using PartnerIntegration.Api.Infrastructure;
+using PartnerIntegration.Api.Partners;
+using PartnerIntegration.Api.Transactions;
+
+var builder = WebApplication.CreateBuilder(args);
+if (string.IsNullOrWhiteSpace(builder.Configuration["Security:ApiKey"]))
+    throw new InvalidOperationException("Configure Security:ApiKey using environment variables or user secrets.");
+builder.Services.AddControllers();
+builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
+    context.ProblemDetails.Extensions["traceId"] = context.HttpContext.TraceIdentifier);
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+builder.Services.AddAuthentication("ApiKey")
+    .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>("ApiKey", _ => { });
+builder.Services.AddAuthorization();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<IFailureSampler, RandomFailureSampler>();
+builder.Services.AddSingleton<RabbitMQ.Client.IConnectionFactory>(_ => new RabbitMQ.Client.ConnectionFactory
+{
+    Uri = new Uri(builder.Configuration["RabbitMq:Uri"]
+        ?? throw new InvalidOperationException("RabbitMq:Uri is required.")),
+    AutomaticRecoveryEnabled = true
+});
+builder.Services.AddSingleton<ITransactionPublisher, RabbitMqPublisher>();
+builder.Services.AddHttpClient<IPartnerVerifier, PartnerVerifier>(client =>
+{
+    client.BaseAddress = new Uri(builder.Configuration["PartnerApi:BaseUrl"] ?? "http://localhost:8080/");
+    client.Timeout = Timeout.InfiniteTimeSpan;
+}).AddStandardResilienceHandler(options => PartnerResilience.Configure(options));
+
+var app = builder.Build();
+app.UseExceptionHandler();
+app.UseStatusCodePages();
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapControllers();
+app.MapGet("/health/live", () => Results.Ok(new { status = "alive" }));
+if (app.Environment.IsDevelopment())
+{
+    app.MapGet("/mock/partners/{partnerId}", (string partnerId, IFailureSampler sampler) =>
+    {
+        if (sampler.ShouldTimeout()) throw new TimeoutException("Simulated partner API timeout.");
+        return Results.Ok(new PartnerDetails(partnerId, $"Demo partner {partnerId}", true));
+    });
+}
+app.Run();
+
+public partial class Program { }

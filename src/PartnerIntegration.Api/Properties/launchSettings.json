@@ -1,0 +1,16 @@
+{
+  "profiles": {
+    "PartnerIntegration.Api": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "launchUrl": "health/live",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "Security__ApiKey": "local-demo-change-this-key",
+        "RabbitMq__Uri": "amqp://guest:guest@localhost:5672/",
+        "PartnerApi__BaseUrl": "http://localhost:64883/"
+      },
+      "applicationUrl": "https://localhost:64882;http://localhost:64883"
+    }
+  }
+}
