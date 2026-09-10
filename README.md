@@ -2,7 +2,7 @@
 
 .NET 8 Web API nhận giao dịch từ đối tác, xác thực dữ liệu, gọi Partner Verification API để bổ sung tên đối tác, rồi publish vào RabbitMQ. Trả `202 Accepted` chỉ sau khi broker xác nhận message.
 
-## Chạy bằng Docker
+## Run by Docker
 
 Cần Docker Desktop với Linux containers / Docker Compose v2.
 
@@ -12,7 +12,7 @@ Copy-Item .env.example .env
 docker compose up --build -d
 docker compose ps
 ```
-API: http://localhost:8080. RabbitMQ Management: http://localhost:15672, tài khoản demo `partner` / `local-demo-password`. Queue `partner.transactions` được tạo ở lần publish đầu tiên. Đây là thông tin demo local, không dùng cho production. Các port chỉ bind vào loopback.
+API: http://localhost:8080. RabbitMQ Management: http://localhost:15672, user demo/pasword `partner` / `local-demo-password`. Queue `partner.transactions` được tạo ở lần publish đầu tiên. Đây là thông tin demo local, không dùng cho production. Các port chỉ bind vào loopback.
 
 ```powershell
 $headers = @{ 'X-Api-Key' = 'local-demo-change-this-key' }
@@ -26,7 +26,7 @@ $body = @{
 Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/v1/partner/transactions -Headers $headers -ContentType 'application/json' -Body $body
 ```
 
-Trong RabbitMQ Management, mở **Queues and Streams → partner.transactions** để xem số message và payload. Chưa có consumer vì legacy processing nằm ngoài phạm vi bài tập. Sau khi restart broker bằng `docker compose restart rabbitmq`, message chưa consume phải còn trong queue. `docker compose down` giữ volume; thêm `-v` sẽ xóa dữ liệu.
+In RabbitMQ Management, open **Queues and Streams → partner.transactions** to show message and payload. Chưa có consumer vì legacy processing nằm ngoài phạm vi bài tập. Sau khi restart broker bằng `docker compose restart rabbitmq`, message chưa consume phải còn trong queue. `docker compose down` giữ volume; thêm `-v` sẽ xóa dữ liệu.
 
 Mock `GET /mock/partners/{partnerId}` chỉ được bật trong Development: mỗi lần gọi độc lập có xác suất 30% ném `TimeoutException`, 70% trả đối tác hợp lệ. Global exception handler chuyển exception thành HTTP 504. Không kỳ vọng đúng 30/70 trên một mẫu nhỏ. BFF gọi mock qua HTTP thật, không gọi trực tiếp method. Với ba lần thử độc lập, xác suất cả ba timeout là 2,7%, nên thỉnh thoảng nhận 503 là hành vi mong đợi. Circuit breaker cũng có thể từ chối sớm khi nhiều lỗi.
 
@@ -122,17 +122,6 @@ dotnet test PartnerIntegration.sln -c Release --collect:"XPlat Code Coverage"
 
 Unit/in-process integration tests không cần API hoặc RabbitMQ đang chạy. Dừng API bằng `Ctrl+C` ở cửa sổ chạy `dotnet run`. Để dừng hoặc khởi động lại RabbitMQ, dùng **Stop** hoặc **Restart** trong `services.msc`. Có thể kiểm tra persistence bằng cách gửi message, restart dịch vụ rồi kiểm tra message chưa consume vẫn còn trong queue.
 
-### Xử lý lỗi thường gặp
-
-| Triệu chứng | Cách kiểm tra |
-| --- | --- |
-| API báo thiếu `Security:ApiKey` | Đặt các biến `$env:...` trong cùng cửa sổ trước khi chạy `dotnet run` |
-| HTTP `401` | Header `X-Api-Key` phải trùng với `Security__ApiKey` |
-| HTTP `503` và log báo lỗi broker | Kiểm tra dịch vụ RabbitMQ đang chạy, port 5672 và tài khoản trong `RabbitMq__Uri` |
-| Không mở được trang quản lý | Kiểm tra dịch vụ RabbitMQ và đã bật plugin `rabbitmq_management`; trang quản lý dùng port 15672 |
-| Port 8080 đang bị dùng | Đổi cả `ASPNETCORE_URLS`, `PartnerApi__BaseUrl` và URL gửi request sang cùng port mới |
-
-Production phải trỏ `PartnerApi__BaseUrl` tới Partner API thật; mock bị tắt. `/health/live` chỉ kiểm tra process còn sống, không khẳng định broker sẵn sàng.
 
 ## Kiến trúc và OOP
 
@@ -186,7 +175,6 @@ Publisher thật và broker confirms cần kiểm chứng bằng RabbitMQ chạy
 
 ## Nộp bài
 
-Tạo public repository trên GitHub/GitLab, sau đó ở thư mục này chạy:
 
 ```powershell
 git init
@@ -197,8 +185,3 @@ git remote add origin https://github.com/changtotbung1105/SSTECH
 git push -u origin main
 ```
 
-## Tài liệu tham khảo
-
-- [Microsoft: HTTP resilience](https://learn.microsoft.com/en-us/dotnet/core/resilience/http-resilience)
-- [RabbitMQ: reliable publishing with confirms](https://www.rabbitmq.com/tutorials/tutorial-seven-dotnet)
-- [RabbitMQ: .NET client guide](https://www.rabbitmq.com/client-libraries/dotnet-api-guide)
