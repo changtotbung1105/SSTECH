@@ -1,3 +1,8 @@
+using PartnerIntegration.Application.Common;
+using PartnerIntegration.Application.Partners;
+using PartnerIntegration.Application.Transactions;
+using PartnerIntegration.Infrastructure.Partners;
+using PartnerIntegration.Infrastructure.Messaging;
 using System.ComponentModel.DataAnnotations;
 using PartnerIntegration.Api.Transactions;
 using Xunit;

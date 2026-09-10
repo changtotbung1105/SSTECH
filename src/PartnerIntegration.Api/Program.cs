@@ -1,7 +1,10 @@
 using Microsoft.AspNetCore.Authentication;
-using PartnerIntegration.Api.Infrastructure;
+using PartnerIntegration.Api.Security;
+using PartnerIntegration.Api.Errors;
 using PartnerIntegration.Api.Partners;
-using PartnerIntegration.Api.Transactions;
+using PartnerIntegration.Application.Partners;
+using PartnerIntegration.Application.Transactions;
+using PartnerIntegration.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 if (string.IsNullOrWhiteSpace(builder.Configuration["Security:ApiKey"]))
@@ -14,19 +17,9 @@ builder.Services.AddAuthentication("ApiKey")
     .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>("ApiKey", _ => { });
 builder.Services.AddAuthorization();
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<ISubmitTransaction, SubmitTransaction>();
 builder.Services.AddSingleton<IFailureSampler, RandomFailureSampler>();
-builder.Services.AddSingleton<RabbitMQ.Client.IConnectionFactory>(_ => new RabbitMQ.Client.ConnectionFactory
-{
-    Uri = new Uri(builder.Configuration["RabbitMq:Uri"]
-        ?? throw new InvalidOperationException("RabbitMq:Uri is required.")),
-    AutomaticRecoveryEnabled = true
-});
-builder.Services.AddSingleton<ITransactionPublisher, RabbitMqPublisher>();
-builder.Services.AddHttpClient<IPartnerVerifier, PartnerVerifier>(client =>
-{
-    client.BaseAddress = new Uri(builder.Configuration["PartnerApi:BaseUrl"] ?? "http://localhost:8080/");
-    client.Timeout = Timeout.InfiniteTimeSpan;
-}).AddStandardResilienceHandler(options => PartnerResilience.Configure(options));
+builder.Services.AddInfrastructure(builder.Configuration);
 
 var app = builder.Build();
 app.UseExceptionHandler();

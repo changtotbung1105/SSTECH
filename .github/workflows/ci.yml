@@ -15,3 +15,16 @@ jobs:
         with:
           name: coverage
           path: tests/**/TestResults/**/coverage.cobertura.xml
+  docker-smoke:
+    runs-on: ubuntu-latest
+    env:
+      PARTNER_API_KEY: ci-demo-key
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose up --build -d --wait --wait-timeout 120
+      - shell: pwsh
+        run: ./scripts/Smoke-Test.ps1
+      - if: failure()
+        run: docker compose logs
+      - if: always()
+        run: docker compose down -v

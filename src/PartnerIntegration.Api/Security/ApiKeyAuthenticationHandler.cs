@@ -5,7 +5,7 @@ using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 
-namespace PartnerIntegration.Api.Infrastructure;
+namespace PartnerIntegration.Api.Security;
 
 public sealed class ApiKeyAuthenticationHandler(IOptionsMonitor<AuthenticationSchemeOptions> options,
     ILoggerFactory logger, UrlEncoder encoder, IConfiguration configuration)

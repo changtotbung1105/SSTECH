@@ -1,6 +1,11 @@
+using PartnerIntegration.Application.Common;
+using PartnerIntegration.Application.Partners;
+using PartnerIntegration.Application.Transactions;
+using PartnerIntegration.Infrastructure.Partners;
+using PartnerIntegration.Infrastructure.Messaging;
 using Microsoft.Extensions.Configuration;
 using Moq;
-using PartnerIntegration.Api.Infrastructure;
+
 using PartnerIntegration.Api.Transactions;
 using RabbitMQ.Client;
 using Xunit;

@@ -6,3 +6,4 @@
 .env
 *.user
 coverage/
+artifacts/

@@ -1,7 +1,8 @@
 using Microsoft.AspNetCore.Diagnostics;
-using PartnerIntegration.Api.Transactions;
+using PartnerIntegration.Application.Common;
+using PartnerIntegration.Domain.Transactions;
 
-namespace PartnerIntegration.Api.Infrastructure;
+namespace PartnerIntegration.Api.Errors;
 
 public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) : IExceptionHandler
 {
@@ -14,6 +15,7 @@ public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logge
         }
         var (status, title) = exception switch
         {
+            DomainValidationException => (400, "Invalid transaction data."),
             TimeoutException => (504, "Partner verification timed out."),
             DependencyUnavailableException => (503, "A required service is temporarily unavailable."),
             _ => (500, "An unexpected error occurred.")

@@ -1,8 +1,10 @@
 using System.Text.Json;
-using PartnerIntegration.Api.Transactions;
+using Microsoft.Extensions.Configuration;
+using PartnerIntegration.Application.Transactions;
+using PartnerIntegration.Application.Common;
 using RabbitMQ.Client;
 
-namespace PartnerIntegration.Api.Infrastructure;
+namespace PartnerIntegration.Infrastructure.Messaging;
 
 public sealed class RabbitMqPublisher(IConfiguration configuration, IConnectionFactory factory) : ITransactionPublisher, IAsyncDisposable
 {

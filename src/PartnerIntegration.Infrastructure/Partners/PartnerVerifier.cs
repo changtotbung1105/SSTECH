@@ -1,33 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
-using Microsoft.Extensions.Http.Resilience;
-using Polly;
 using Polly.Timeout;
-using PartnerIntegration.Api.Transactions;
-
-namespace PartnerIntegration.Api.Partners;
-
-public sealed record PartnerDetails(string PartnerId, string Name, bool IsVerified);
-
-public interface IPartnerVerifier
-{
-    Task<PartnerDetails?> VerifyAsync(string partnerId, CancellationToken cancellationToken);
-}
-
-public static class PartnerResilience
-{
-    public static void Configure(HttpStandardResilienceOptions options, TimeSpan? retryDelay = null)
-    {
-        options.Retry.MaxRetryAttempts = 2;
-        options.Retry.Delay = retryDelay ?? TimeSpan.FromMilliseconds(200);
-        options.Retry.BackoffType = DelayBackoffType.Exponential;
-        options.Retry.UseJitter = retryDelay is null;
-        options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(2);
-        options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(8);
-        options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(20);
-        options.CircuitBreaker.MinimumThroughput = 10;
-    }
-}
+using PartnerIntegration.Application.Partners;
+using PartnerIntegration.Application.Common;
+namespace PartnerIntegration.Infrastructure.Partners;
 
 public sealed class PartnerVerifier(HttpClient client) : IPartnerVerifier
 {
@@ -50,10 +26,4 @@ public sealed class PartnerVerifier(HttpClient client) : IPartnerVerifier
             throw new DependencyUnavailableException("Partner verification is temporarily unavailable.", ex);
         }
     }
-}
-
-public interface IFailureSampler { bool ShouldTimeout(); }
-public sealed class RandomFailureSampler : IFailureSampler
-{
-    public bool ShouldTimeout() => Random.Shared.NextDouble() < 0.30;
 }

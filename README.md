@@ -1,96 +1,39 @@
-# Partner Integration BFF
+﻿# Partner Integration BFF
 
-.NET 8 Web API nhận giao dịch từ đối tác, xác thực dữ liệu, gọi Partner Verification API để bổ sung tên đối tác, rồi publish vào RabbitMQ. Trả `202 Accepted` chỉ sau khi broker xác nhận message.
+A .NET 8 Web API that validates partner transactions, verifies and enriches them through a Partner Verification API, and publishes them to RabbitMQ. It returns `202 Accepted` only after the broker confirms the message.
 
-## Run by Docker
+The scope ends at queue delivery: a legacy consumer and downstream business processing are not included. Docker Compose provides the API and a local RabbitMQ instance; the API can also run directly on Windows.
 
-Cần Docker Desktop với Linux containers / Docker Compose v2.
+- [Run with Docker](#run-with-docker)
+- [Run on Windows](#run-directly-on-windows-without-docker)
+- [Architecture](#clean-architecture-and-solid)
+- [Testing and verification](#testing-and-verification)
+
+## Run with Docker
+
+Requires Docker Engine with Docker Compose v2, or Docker Desktop configured for Linux containers. No host .NET SDK is needed for the container build. Clone the repository and run the commands from its root:
+
+```sh
+git clone https://github.com/changtotbung1105/SSTECH.git
+cd SSTECH
+```
+
+PowerShell:
 
 ```powershell
 Copy-Item .env.example .env
-# Thay PARTNER_API_KEY trong .env nếu cần.
+# Update PARTNER_API_KEY in .env if needed.
 docker compose up --build -d
 docker compose ps
 ```
-API: http://localhost:8080. RabbitMQ Management: http://localhost:15672, user demo/pasword `partner` / `local-demo-password`. Queue `partner.transactions` được tạo ở lần publish đầu tiên. Đây là thông tin demo local, không dùng cho production. Các port chỉ bind vào loopback.
+
+On Bash, use `cp .env.example .env` instead of `Copy-Item`; the Docker commands are the same. Create `.env` only on the first run so existing configuration is preserved. Wait for the API startup message in `docker compose logs api` before sending requests.
+
+API: http://localhost:8080. RabbitMQ Management: http://localhost:15672, with demo credentials `partner` / `local-demo-password`. Published ports are bound to loopback. These credentials are for local development only.
+
+Send a transaction from PowerShell:
 
 ```powershell
-$headers = @{ 'X-Api-Key' = 'local-demo-change-this-key' }
-$body = @{
-    partnerId = 'P-1001'
-    transactionReference = 'TXN-99823'
-    amount = 250.00
-    currency = 'USD'
-    timestamp = '2024-05-10T14:30:00Z'
-} | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/v1/partner/transactions -Headers $headers -ContentType 'application/json' -Body $body
-```
-
-In RabbitMQ Management, open **Queues and Streams → partner.transactions** to show message and payload. Chưa có consumer vì legacy processing nằm ngoài phạm vi bài tập. Sau khi restart broker bằng `docker compose restart rabbitmq`, message chưa consume phải còn trong queue. `docker compose down` giữ volume; thêm `-v` sẽ xóa dữ liệu.
-
-Mock `GET /mock/partners/{partnerId}` chỉ được bật trong Development: mỗi lần gọi độc lập có xác suất 30% ném `TimeoutException`, 70% trả đối tác hợp lệ. Global exception handler chuyển exception thành HTTP 504. Không kỳ vọng đúng 30/70 trên một mẫu nhỏ. BFF gọi mock qua HTTP thật, không gọi trực tiếp method. Với ba lần thử độc lập, xác suất cả ba timeout là 2,7%, nên thỉnh thoảng nhận 503 là hành vi mong đợi. Circuit breaker cũng có thể từ chối sớm khi nhiều lỗi.
-
-## Chạy hoàn toàn trên Windows, không cần Docker
-
-API và RabbitMQ chạy trực tiếp trên Windows; không cần Docker, WSL hoặc bật ảo hóa trong BIOS.
-
-### 1. Cài phần mềm
-
-- Cài .NET 8 SDK. SDK mới hơn có thể build nhờ `global.json`, nhưng chạy vẫn cần .NET 8 runtime.
-- Cài Erlang/OTP 64-bit trước, sau đó cài RabbitMQ Server bằng Windows installer theo [hướng dẫn chính thức](https://www.rabbitmq.com/docs/install-windows). Chọn phiên bản Erlang tương thích với RabbitMQ theo [bảng tương thích](https://www.rabbitmq.com/docs/which-erlang).
-- Mở `services.msc`, tìm dịch vụ **RabbitMQ**, kiểm tra trạng thái **Running**; chọn **Start** nếu dịch vụ đang dừng.
-
-### 2. Bật giao diện quản lý RabbitMQ
-
-Mở **RabbitMQ Command Prompt (sbin dir)** từ Start Menu bằng **Run as administrator**, chạy:
-
-```cmd
-rabbitmq-plugins.bat enable rabbitmq_management
-rabbitmq-diagnostics.bat ping
-```
-
-Lệnh `ping` phải báo thành công. Mở http://localhost:15672 và đăng nhập `guest` / `guest` cho bản cài mới mặc định. Tài khoản này chỉ dùng kết nối local; bản Docker Compose dùng tài khoản demo khác là `partner` / `local-demo-password`.
-
-### 3. Chạy API
-
-**Cách nhanh: dùng profile local đã cấu hình sẵn.** Sau khi RabbitMQ chạy nền, mở PowerShell tại thư mục repository:
-
-```powershell
-cd src/PartnerIntegration.Api
-dotnet run
-```
-
-API lắng nghe tại `https://localhost:64882` và `http://localhost:64883`. Endpoint giao dịch là **POST https://localhost:64882/api/v1/partner/transactions**, dùng header `X-Api-Key: local-demo-change-this-key`. Profile dùng RabbitMQ local với tài khoản demo `guest` / `guest`; mock Partner API được gọi qua HTTP nội bộ port 64883.
-
-Nếu chạy từ thư mục solution, dùng `dotnet run --project src/PartnerIntegration.Api`. Trong Visual Studio, chọn API làm Startup Project, chọn profile `PartnerIntegration.Api` rồi F5. Visual Studio mở `/health/live` để hiển thị trạng thái API; `dotnet run` không tự mở trình duyệt. Mở URL transactions bằng trình duyệt gửi GET nên trả 405; cần gửi POST bằng Postman hoặc đoạn PowerShell ở bước 4 (đổi URL sang `https://localhost:64882`).
-
-Nếu máy chưa tin cậy chứng chỉ HTTPS local, chạy một lần `dotnet dev-certs https --trust` và chấp nhận hộp thoại Windows, sau đó chạy lại API.
-
-Các giá trị demo được đặt trong `src/PartnerIntegration.Api/Properties/launchSettings.json`, chỉ dùng khi chạy local. Không dùng key hoặc tài khoản demo cho production.
-
-**Cách tùy chỉnh: tự đặt biến môi trường và chạy port 8080.**
-
-Mở PowerShell tại thư mục repository, nơi có file `PartnerIntegration.sln`, rồi chạy toàn bộ đoạn sau trong cùng cửa sổ:
-
-```powershell
-$env:ASPNETCORE_ENVIRONMENT = 'Development'
-$env:ASPNETCORE_URLS = 'http://localhost:8080'
-$env:Security__ApiKey = 'local-demo-change-this-key'
-$env:PartnerApi__BaseUrl = 'http://localhost:8080/'
-$env:RabbitMq__Uri = 'amqp://guest:guest@localhost:5672/'
-
-dotnet run --project src/PartnerIntegration.Api --no-launch-profile
-```
-
-Giữ cửa sổ này mở. Khi thấy `Now listening on: http://localhost:8080`, API đã khởi động. Các biến môi trường trên chỉ áp dụng cho cửa sổ PowerShell hiện tại; mở cửa sổ mới để chạy API thì cần đặt lại. Cách chạy này không cần file `.env`; `dotnet run` không tự đọc file đó.
-
-### 4. Gửi giao dịch thử
-
-Mở PowerShell thứ hai và chạy. Đoạn dưới dùng port 8080 của cách tùy chỉnh; nếu chạy profile local mặc định, thay `http://localhost:8080` bằng `https://localhost:64882` ở cả hai URL:
-
-```powershell
-Invoke-RestMethod -Uri 'http://localhost:8080/health/live'
-
 $headers = @{ 'X-Api-Key' = 'local-demo-change-this-key' }
 $body = @{
     partnerId = 'P-1001'
@@ -108,80 +51,210 @@ Invoke-RestMethod `
     -Body $body
 ```
 
-Thành công trả HTTP `202` với `messageId`, `transactionReference` và `status: queued`. Trong RabbitMQ Management, mở **Queues and Streams → partner.transactions** để xem message. Queue được tạo ở lần publish đầu tiên. Nếu dùng **Get messages** để xem payload, chọn chế độ requeue nếu muốn giữ message trong queue.
+If you changed the API key in `.env`, use the same value in the request header.
 
-Mock vẫn có xác suất timeout 30% mỗi lần gọi; nếu hết lượt retry, API trả `503`. Khi gặp `503` liên tục, xem log ở cửa sổ chạy API để phân biệt lỗi Partner API với lỗi kết nối RabbitMQ.
+Expected response: **HTTP 202 Accepted** (the generated ID varies).
 
-### 5. Chạy test và dừng ứng dụng
-
-Tại thư mục repository:
-
-```powershell
-dotnet test PartnerIntegration.sln -c Release --collect:"XPlat Code Coverage"
+```json
+{
+  "messageId": "93a03eab-a782-4729-a50a-90a77bcc4e17",
+  "transactionReference": "TXN-99823",
+  "status": "queued"
+}
 ```
 
-Unit/in-process integration tests không cần API hoặc RabbitMQ đang chạy. Dừng API bằng `Ctrl+C` ở cửa sổ chạy `dotnet run`. Để dừng hoặc khởi động lại RabbitMQ, dùng **Stop** hoặc **Restart** trong `services.msc`. Có thể kiểm tra persistence bằng cách gửi message, restart dịch vụ rồi kiểm tra message chưa consume vẫn còn trong queue.
+The queued JSON preserves the request fields and adds `partnerName`, `messageId`, `schemaVersion` (1), and `receivedAt`. Acceptance means queued for later processing, not that the transaction has completed.
 
+In RabbitMQ Management, open **Queues and Streams → partner.transactions** to inspect messages. The queue is created on the first publish. No consumer is included because legacy processing is outside the exercise scope.
 
-## Kiến trúc và OOP
+To check persistence, run `docker compose restart rabbitmq` and verify that unconsumed messages remain. `docker compose down` preserves the volume; adding `-v` deletes its data.
 
-Một project API tổ chức theo trách nhiệm, một project test; không thêm repository/database vì bài toán chưa cần persistence riêng.
+## Run directly on Windows without Docker
 
-- `Transactions`: DTO có DataAnnotations, contract message và controller điều phối. Amount dùng `decimal`, timestamp dùng `DateTimeOffset`; nullable giúp phân biệt trường bị bỏ sót. `[ApiController]` tự trả 400 trước khi gọi dependency.
-- `Partners`: `IPartnerVerifier` và typed `HttpClient`; kiểm tra ID trả về, trạng thái verified và tên đối tác trước khi enrich.
-- `Infrastructure`: `ITransactionPublisher` có implementation RabbitMQ, API-key authentication, global exception handler.
-- Constructor injection giúp controller phụ thuộc abstraction (DIP); mỗi thành phần có một trách nhiệm (SRP). Không thêm lớp kế thừa hoặc generic abstraction khi chưa có nhu cầu.
+The API and RabbitMQ run directly on Windows without Docker, WSL, or BIOS virtualization.
 
-Currency được hiểu là **currency được hệ thống hỗ trợ**: USD, EUR, GBP, VND, JPY, SGD, AUD, CAD, CHF, CNY, THB. Đây là allow-list mã ISO 4217 viết hoa, không phải toàn bộ danh sách ISO. Mã ISO ngoài danh sách vẫn bị từ chối; cần thống nhất với nghiệp vụ khi mở rộng. Không áp đặt timestamp phải gần hiện tại, vì đề bài không yêu cầu và payload mẫu là ngày quá khứ.
+### 1. Install prerequisites
 
-## Retry và tính tin cậy
+- Install the .NET 8 SDK. A newer SDK can build through the roll-forward policy in `global.json`, but running the application still requires the .NET 8 runtime.
+- Install 64-bit Erlang/OTP first, then RabbitMQ Server using the Windows installer. Follow the [official installation guide](https://www.rabbitmq.com/docs/install-windows) and select compatible versions using the [Erlang compatibility matrix](https://www.rabbitmq.com/docs/which-erlang).
+- Open `services.msc`, find **RabbitMQ**, and check that its status is **Running**. Select **Start** if it is stopped.
 
-`Microsoft.Extensions.Http.Resilience` dùng standard handler: retry tối đa 2 lần (3 attempts tổng cộng), exponential backoff bắt đầu 200 ms với jitter, attempt timeout 2 giây và tổng thời gian 8 giây. Retry lỗi network, 408, 429 và 5xx; không retry lỗi 4xx khác. Có circuit breaker và giới hạn concurrency của standard handler. Retry chỉ dùng cho GET kiểm tra partner. Cancellation của caller được truyền xuống.
+### 2. Enable RabbitMQ Management
 
-RabbitMQ dùng connection dùng lại, channel riêng theo request, durable queue, persistent message, `mandatory` routing và publisher confirms. Publish có deadline 5 giây. Không trả 202 khi publish lỗi. Không tự retry publish vì broker có thể đã nhận message nhưng acknowledgement bị mất.
+Open **RabbitMQ Command Prompt (sbin dir)** from the Start Menu using **Run as administrator**, then run:
 
-**Giới hạn delivery:** không đảm bảo exactly-once. Nếu broker nhận message nhưng HTTP response bị mất, client retry có thể tạo bản sao. Legacy consumer nên deduplicate bằng cặp `(partnerId, transactionReference)` trong cùng database transaction với nghiệp vụ và manual ack sau commit. `MessageId` nhận diện một lần tiếp nhận, không phải idempotency key xuyên các lần client retry. Production có thể thêm persistent idempotency store / transactional outbox nếu cần nhận giao dịch trong lúc broker offline. Bài này trả 503 để caller xử lý retry. Single-node RabbitMQ và volume local chưa cung cấp HA.
+```cmd
+rabbitmq-plugins.bat enable rabbitmq_management
+rabbitmq-diagnostics.bat ping
+```
 
-| HTTP | Ý nghĩa |
+The `ping` command should succeed. Open http://localhost:15672 and sign in with `guest` / `guest` for a fresh default installation. This account is restricted to local connections. Docker Compose uses different demo credentials: `partner` / `local-demo-password`.
+
+### 3. Start the API
+
+**Quick start using the included local profile:** once RabbitMQ is running, open PowerShell at the repository root:
+
+```powershell
+cd src/PartnerIntegration.Api
+dotnet run
+```
+
+The API listens on `https://localhost:64882` and `http://localhost:64883`. Submit transactions to **POST https://localhost:64882/api/v1/partner/transactions** with the header `X-Api-Key: local-demo-change-this-key`.
+
+The profile connects to local RabbitMQ using `guest` / `guest` and calls the mock Partner API over HTTP on port 64883. Demo settings are defined in `src/PartnerIntegration.Api/Properties/launchSettings.json` for local use only.
+
+Alternatively, run `dotnet run --project src/PartnerIntegration.Api` from the solution directory. In Visual Studio, set the API as the startup project, select the `PartnerIntegration.Api` profile, and press **F5**. Visual Studio opens `/health/live`; `dotnet run` does not automatically open a browser.
+
+Opening the transactions URL in a browser sends GET and returns 405. Use POST through Postman or the PowerShell example below to submit a transaction.
+
+If the local HTTPS certificate is not trusted, run `dotnet dev-certs https --trust` once, accept the Windows confirmation, and restart the API.
+
+**Custom configuration on port 8080:** open PowerShell at the repository root and run these commands in the same window:
+
+```powershell
+$env:ASPNETCORE_ENVIRONMENT = 'Development'
+$env:ASPNETCORE_URLS = 'http://localhost:8080'
+$env:Security__ApiKey = 'local-demo-change-this-key'
+$env:PartnerApi__BaseUrl = 'http://localhost:8080/'
+$env:RabbitMq__Uri = 'amqp://guest:guest@localhost:5672/'
+
+dotnet run --project src/PartnerIntegration.Api --no-launch-profile
+```
+
+Keep this window open. `Now listening on: http://localhost:8080` indicates that the API has started. These environment variables apply only to the current PowerShell session. This approach does not require `.env`; `dotnet run` does not automatically load that file.
+
+### 4. Send a transaction
+
+Open a second PowerShell window. This example uses the default HTTPS profile. For the custom configuration, change `$baseUrl` to `http://localhost:8080`:
+
+```powershell
+$baseUrl = 'https://localhost:64882'
+Invoke-RestMethod -Uri "$baseUrl/health/live"
+
+$headers = @{ 'X-Api-Key' = 'local-demo-change-this-key' }
+$body = @{
+    partnerId = 'P-1001'
+    transactionReference = 'TXN-99823'
+    amount = 250.00
+    currency = 'USD'
+    timestamp = '2024-05-10T14:30:00Z'
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+    -Method Post `
+    -Uri "$baseUrl/api/v1/partner/transactions" `
+    -Headers $headers `
+    -ContentType 'application/json' `
+    -Body $body
+```
+
+Success returns HTTP `202` with `messageId`, `transactionReference`, and `status: queued`. In RabbitMQ Management, open **Queues and Streams → partner.transactions**. When inspecting payloads with **Get messages**, select a requeue mode if you want to keep the messages in the queue.
+
+The mock may time out on each verification attempt. If retries are exhausted, the API returns `503`. For repeated failures, inspect the API logs to distinguish Partner API failures from RabbitMQ connection failures.
+
+### 5. Stop the application
+
+Stop the API with `Ctrl+C` in its terminal. Use **Stop** or **Restart** in `services.msc` to manage RabbitMQ. To check persistence, publish a message, restart the service, and verify that unconsumed messages remain. See [Testing and verification](#testing-and-verification) for automated tests.
+
+## Clean Architecture and SOLID
+
+The solution separates responsibilities into four production projects. Dependencies point toward the business rules; Domain and Application have no ASP.NET Core, RabbitMQ, Polly, or external NuGet dependencies.
+
+```mermaid
+flowchart LR
+    API[API / composition root] --> Application
+    API --> Infrastructure
+    API -->|shared validation rules| Domain
+    Infrastructure --> Application
+    Application --> Domain
+```
+
+Arrows show code dependencies, not the runtime request flow. API uses Domain through the transitive project reference for shared validation rules; its direct project references are Application and Infrastructure.
+
+| Project | Responsibility |
 | --- | --- |
-| 202 | Broker đã xác nhận message |
-| 400 | JSON hoặc dữ liệu không hợp lệ |
-| 401 | Thiếu/sai API key |
-| 422 | Partner không tồn tại hoặc chưa được xác thực |
-| 503 | Partner API hoặc broker không khả dụng |
-| 500 | Lỗi ngoài dự kiến |
+| `PartnerIntegration.Domain` | Immutable `PartnerTransaction` and shared `TransactionRules`; rejects invalid business data regardless of the caller |
+| `PartnerIntegration.Application` | `SubmitTransaction` use case, commands/receipts, message contract, and narrow `IPartnerVerifier` / `ITransactionPublisher` ports |
+| `PartnerIntegration.Infrastructure` | HTTP partner verification with resilience, RabbitMQ publishing, and registration of these adapters |
+| `PartnerIntegration.Api` | HTTP DTOs and validation, controller, API-key authentication, exception-to-HTTP mapping, Development mock, and dependency wiring |
 
-Lỗi dùng `application/problem+json`; lỗi không lộ stack trace cho client. Server log giữ exception và trace ID để điều tra. Mock timeout trả 504; khi BFF dùng hết retries, endpoint giao dịch trả 503.
+The composition root is `Program.cs` in the API project. It references Infrastructure to register concrete adapters. Controllers depend on `ISubmitTransaction`; they do not call RabbitMQ or HTTP clients. Application references Domain, and Infrastructure implements Application interfaces. Assembly dependency tests guard these boundaries.
 
-## Bảo mật
+- **Single responsibility:** the controller handles HTTP, the use case orchestrates acceptance, Domain enforces transaction invariants, and adapters handle external protocols.
+- **Open/closed:** a new partner verifier or message destination can implement an existing port and be registered without changing the use case.
+- **Liskov substitution:** implementations must honor the port contracts: verifier rejection returns null, failures propagate, and publishing completes only after destination confirmation. Tests exercise replacement adapters and failure behavior.
+- **Interface segregation:** verification, publishing, and submission each have a focused interface; callers do not depend on unrelated operations.
+- **Dependency inversion:** business orchestration depends on ports owned by Application, not on RabbitMQ, `HttpClient`, or ASP.NET Core. `TimeProvider` makes receipt timestamps deterministic in tests.
 
-Endpoint yêu cầu `X-Api-Key`; key đọc từ configuration/environment và so sánh hash bằng constant-time comparison. `.env` không commit. Đây là ví dụ shared key cho bài test, chưa ràng buộc danh tính với `partnerId`. Production nên dùng OAuth2 client credentials/JWT hoặc mTLS, kiểm tra quyền trên từng partnerId, rotate secrets qua secret manager, HTTPS tại reverse proxy và rate limit theo đối tác. Container API chạy bằng user không phải root. Mock chỉ dành cho môi trường Development.
+Amounts use `decimal`, timestamps use `DateTimeOffset`, and nullable HTTP DTO properties distinguish omitted values. DataAnnotations provide HTTP validation responses using shared Domain rules; the Domain constructor also protects callers that invoke the use case directly. No database, generic repository, or mediator is introduced because this exercise does not require them.
 
-## Tests
+The request flow is: authenticate → validate → verify partner over HTTP → enrich the transaction → publish to RabbitMQ → await broker confirmation → return 202. Legacy consumption and business processing happen later and are not implemented here.
+
+**Validation assumptions:** all five request fields are required. Partner IDs and transaction references must be nonblank and at most 100 characters; amounts must be positive. Currency validation accepts USD, EUR, GBP, VND, JPY, SGD, AUD, CAD, CHF, CNY, and THB, in uppercase. This implementation interprets valid currency as a supported currency: it is an explicit allow-list, not complete ISO 4217 validation. Valid ISO codes outside this list, such as NZD, are currently rejected. Timestamps must be parseable and non-default, but need not be recent because the specification does not impose that restriction.
+
+## Partner verification and resilience
+
+The mock `GET /mock/partners/{partnerId}` endpoint is enabled only in Development, including the Compose demo. Each call independently has a 30% chance of throwing `TimeoutException` and a 70% chance of returning a verified partner. The mock accepts any supplied partner ID on its success branch; it has no partner registry. Rejected partners are covered through test doubles. The global exception handler converts the timeout into HTTP 504. The BFF calls the mock over HTTP rather than invoking its method directly.
+
+`Microsoft.Extensions.Http.Resilience` provides the standard handler with at most two retries (three attempts total), exponential backoff starting at 200 ms with jitter, a two-second attempt timeout, and an eight-second total request timeout. It retries network errors, HTTP 408, 429, and 5xx, but not other 4xx responses. The handler also provides circuit breaking and concurrency limiting. This pipeline is used for the partner verification GET request, and caller cancellation is propagated.
+
+Do not expect an exact 30/70 split in a small sample. Assuming three independent attempts reach the mock, the chance that all three time out is 2.7%, so an occasional 503 is expected. The circuit breaker can reject requests early during sustained failures. Production must point `PartnerApi__BaseUrl` at a compatible external service because the local mock is disabled outside Development.
+
+## Messaging reliability
+
+The publisher reuses a connection and creates a separate channel per request. It uses a durable queue, persistent messages, mandatory routing, and publisher confirms, with a five-second publish deadline. The API does not return 202 when publishing fails. Publishing is not automatically retried because the broker might have received a message even if its acknowledgement was lost.
+
+**Delivery limitations:** this implementation does not guarantee exactly-once processing. If the broker receives a message but the HTTP response is lost, a client retry can create a duplicate. A legacy consumer should deduplicate by `(partnerId, transactionReference)` in the same database transaction as its business operation, then acknowledge after commit. `MessageId` identifies an individual acceptance attempt; it is not an idempotency key across client retries.
+
+Persistent idempotency tracking could deduplicate client submissions. Accepting transactions while the broker is offline would additionally require durable local storage, such as a transactional outbox with a background publisher. Neither is implemented here: broker failures return 503. A single RabbitMQ node with local storage does not provide high availability.
+
+## HTTP responses
+
+| HTTP status | Meaning |
+| --- | --- |
+| 202 | The broker confirmed the message; legacy processing is still pending |
+| 400 | Invalid JSON or request data |
+| 401 | Missing or invalid API key |
+| 422 | Partner not found or not verified |
+| 503 | Partner API or message broker unavailable |
+| 500 | Unexpected server error |
+
+Errors use `application/problem+json` without exposing stack traces. Server logs retain exceptions and trace IDs for investigation. A mock timeout returns 504; exhausted verification retries result in 503 from the transaction endpoint. `/health/live` checks whether the API process is alive, not whether the broker is ready.
+
+## Security
+
+The transaction endpoint requires `X-Api-Key`. The key is read from configuration or environment variables, and its hash is compared in constant time. `.env` is excluded from Git. The local launch profile contains demo credentials only.
+
+This shared-key example does not bind the authenticated client to a specific `partnerId`. Production should use OAuth2 client credentials/JWT or mTLS, authorize access to each partner ID, rotate secrets through a secret manager, terminate HTTPS at a reverse proxy, and apply per-partner rate limits. The API container runs as a non-root user, and the mock endpoint is available only in Development.
+
+## Testing and verification
 
 ```powershell
 dotnet test PartnerIntegration.sln -c Release --collect:"XPlat Code Coverage"
 ```
 
-Không cần RabbitMQ để chạy unit/in-process integration tests. Coverage Cobertura nằm dưới `tests/PartnerIntegration.Tests/TestResults/<run-id>/coverage.cobertura.xml`; CI upload thành artifact.
+RabbitMQ is not required for these tests. Cobertura reports are written to `tests/PartnerIntegration.Tests/TestResults/<run-id>/coverage.cobertura.xml`; CI uploads them as artifacts.
 
-Kết quả kiểm chứng tại workspace: **63/63 tests passed**, line coverage **95,36% (144/151)**, branch coverage **79,68%**. Build/test target `net8.0`, dùng SDK 10.0.302 và runtime .NET 8 có sẵn. Docker Desktop không khởi động được trên máy kiểm thử nên chưa chạy Compose; cũng chưa xác nhận end-to-end với broker thật cài trực tiếp trên Windows.
+Recorded local verification (2026-09-10): **78/78 tests passed**, **95.95% line coverage (190/198)**, and **82.95% branch coverage** across all four production assemblies. Tests ran on .NET 8 using SDK 10.0.302. Release publishing and Compose configuration validation also passed.
 
-Tests kiểm tra từng field required, amount, supported currency, timestamp; resilience dùng **pipeline thật** và HTTP handler giả để ép chuỗi lỗi deterministic; test timeout dùng request thực sự chờ đến deadline. Endpoint tests dùng `WebApplicationFactory`, thay verifier/publisher để kiểm tra validation, authentication, enrichment, accepted response và dependency errors. Mock sampler có thể thay thế để kiểm tra cả nhánh thành công/timeout mà không có flaky random tests.
+**Verification boundary:** Docker Engine was unavailable locally. Container startup, delivery to a real broker, and restart persistence remain unverified here. The CI workflow defines .NET 8 build/tests and a Docker smoke test; their results should be checked in the repository's Actions tab. Coverage measures the automated tests, not end-to-end broker guarantees.
 
-Publisher tests dùng Moq ở boundary RabbitMQ client: kiểm tra durable queue, persistent message, mandatory routing, bật publisher confirms, chờ confirmation, tái sử dụng/thay connection, lỗi connection/publish và cancellation. Các test này kiểm tra code gọi client đúng contract; chúng không thay thế bài test tích hợp với broker thật.
+- Validation tests cover required fields, amounts, supported currencies, and timestamps.
+- Resilience tests exercise the real HTTP resilience pipeline with a stub handler producing deterministic failures. The timeout test waits for an actual attempt deadline.
+- Endpoint tests use `WebApplicationFactory` with replacement verifier/publisher implementations to check validation, authentication, enrichment, accepted responses, and dependency failures. The mock failure sampler is replaceable so both outcomes can be tested without random failures.
+- Publisher tests use Moq at the RabbitMQ client boundary to check durable queues, persistent messages, mandatory routing, publisher confirmation settings, waiting for confirmations, connection reuse/replacement, connection/publish errors, and cancellation.
+- Use-case tests check Domain validation without HTTP, partner rejection, enrichment, cancellation, and waiting for confirmation before returning a receipt. Architecture tests enforce assembly dependency boundaries.
 
-Publisher thật và broker confirms cần kiểm chứng bằng RabbitMQ chạy qua Docker hoặc cài trực tiếp trên Windows theo các bước ở trên; in-process tests không chứng minh RabbitMQ persistence hoặc network recovery. Không loại bỏ infrastructure khỏi coverage để nâng số liệu.
+Mock-based publisher tests verify how the application uses the client contract; they do not prove broker persistence or network recovery. Those require a real RabbitMQ instance, using either installation method above. Infrastructure is included in coverage measurements.
 
-## Nộp bài
+### Docker smoke test
 
+The Dockerfile restores all four projects before publishing the API. The [`docker-smoke` CI job](.github/workflows/ci.yml) builds and starts Compose, submits a transaction over HTTP, and checks the enriched payload through RabbitMQ Management. It uses a fresh broker and cleans up its own volumes afterward.
+
+To run the same smoke check locally after starting Compose:
 
 ```powershell
-git init
-git add .
-git commit -m "Implement partner integration BFF"
-git branch -M main
-git remote add origin https://github.com/changtotbung1105/SSTECH
-git push -u origin main
+./scripts/Smoke-Test.ps1 -ApiKey 'local-demo-change-this-key'
 ```
 
+Use the key configured in `.env`. The script expects the Compose credentials and reads up to 100 queued messages with requeue enabled; use a fresh test queue for a reliable isolated check. It retries HTTP 503 responses to accommodate the random mock failures. It verifies delivery, not restart persistence or exactly-once processing.
